@@ -1,9 +1,6 @@
-/*커널 스레드 생성
-
-
+/*1.커널 모듈 생성
 
 !!!!!!! 작성시 주의 !!!!!! */
-
 
 /*
  insmod()를 호출해서 모듈을 커널에 적재
@@ -22,7 +19,7 @@
 
 
 //hello_init(exit) 함수 작성
-static int __init hello_init(void){
+static int __init hello_init(void){ //insmod()를 호출하면 실행되는 함수
 
 	printk("called hello_init()\n"); //kernel log에 출력된다.
 	return 0;
