@@ -50,19 +50,18 @@ int main (int argc, char **argv){
     gno=atoi(argv[1]); //pin 번호 저장
 
     //device open /dev/mem
-    if((mem_fd= open("/dev/mem",O_RDWR|O_SYNC))<0)
+    if((mem_fd= open("/dev/mem",O_RDWR|O_SYNC))<0) //O_SYNC APP 단과 H/W단 까지 의 동작이 완료 되었을때까지 대기
     {
         puts("open() dev/mem error");
         return -1;
     }
 /*
-   mmap(시작주소=실제 메모리 주소 (NULL 을 집어넣을 경우 커널에서 자동으로 할당),
+  void* mmap(시작주소=실제 메모리 주소 (NULL 을 집어넣을 경우 커널에서 자동으로 할당),
         사이즈,
-        mode 설정
+        prot_mode 설정,
         Flags,
-        file,
+        file디스크립터, 메모리와fd(파일 또는 장치)를 대응 메모리에 접근할때마다 fd를 사용
         offset=가상주소
-    
     )*/
     gpio_map=mmap(NULL,GPIO_SIZE,PROT_READ |PROT_WRITE,MAP_SHARED,mem_fd,GPIO_BASE);
 
