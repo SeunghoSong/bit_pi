@@ -1,3 +1,5 @@
+/*유저영역 메모리 맵핑을 통한 레지스터 제어 */
+
 #include<stdio.h>
 #include<unistd.h>
 #include<stdlib.h>
@@ -15,7 +17,7 @@
 //GPIO Function Select Register 0 ~ 5
 #define GPIO_IN(g) (*(gpio+((g)/10))&=~(7<<(((g)%10)*3))) //해당 레지스터번지 &=~사용할 포트 인풋 설정 값000
 //해당 레지스터번지 |=사용할 포트 아웃풋 설정 값001
-#define GPIO_OUT(g) {(*(gpio+((g)/10))&=~(7<<(((g)%10)*3)));\
+#define GPIO_OUT(g) {(*(gpio+((g)/10))&=~(7<<(((g)%10)*3)));
                     (*(gpio+((g)/10))|=(1<<(((g)%10)*3)));}                                                    
 
 //GPIO Function set Register 0 /clear 0 Set 1
