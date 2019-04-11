@@ -1,7 +1,8 @@
 /* 3. GPIO Driver Module
- //gpio를 제어하는 char 형 device driver를 제어 컨트롤
- timer을 이용하여 LED 제어
-
+ //gpio를 제어하는 char 형 device driver를 이용한 제어 컨트롤
+ signal을 이용한 커널과 유저 통신
+-버튼을 이용하여 LED를 끄고 킬때 시그널을 통해 유저에서도 알수 있도록 할수 있다.
+    ()
  !!!!!!! 작성시 주의 !!!!!! */
 /*
 ** 쉘 명령어**
@@ -24,15 +25,20 @@ dmesg  : 명령어로는 kernel에 대한 log 기록을 볼수 있다.
 #include <linux/gpio.h>  //gpio  관련 (gpio_get_value)
 
 #include <linux/interrupt.h> // 인터럽트 관련
-#include <linux/timer.h> //timer 관련 (init_timer(),add_timer(),del_timer)
-#include <linux/ktime.h>
+
+//시그널 관련 
+#include <linux/signal.h>
+#include <linux/sched/signal.h>
+
+#include <linux/hrtimer.h>  //high-resolution timer
+#include <linux/ktime.h>    
 
 #define GPIO_MAJOR 200
 #define GPIO_MINOR 0
 #define GPIO_DEVICE "gpioled"
 #define GPIO_LED 18
 #define GPIO_SW 17
-//#define DEBUG
+#define DEBUG
 #define BLK_SIZE 100
 //char 형 디바이스 드라이버 구조체 
 struct cdev gpio_cdev;
@@ -40,7 +46,19 @@ struct cdev gpio_cdev;
 static char msg[BLK_SIZE]={0};
 
 static int switch_irq; //irq핸들러 접근용의 하도록
-static struct timer_list timer; //타이머처리를 위한 구조체
+
+static struct task_struct *task; //태스크를 위한 구조체 (프로세스하나당 하나씩 있음)
+pid_t pid;
+char pid_vaild;
+static struct hrtimer hr_timer;
+
+enum hrtimer_restart myTimer_callback(struct hrtimer *timer){
+    printk(KERN_INFO "myTimer callback\n");
+    flag=0;
+    return HRTIMER_NORESETED;
+
+
+}
 
 static int gpio_open(struct inode *, struct file *);
 static int gpio_close(struct inode *, struct file *);
@@ -79,34 +97,45 @@ static ssize_t gpio_read(struct file *inode, char *buff, size_t len,loff_t *off)
     return count;
 }
 
-
-static void timer_func(unsigned long data) {
-	gpio_set_value(GPIO_LED, data);
-	if (data)
-		timer.data = 0L;
-	else
-		timer.data = 1L;
-
-	timer.expires = jiffies + (1 * HZ);
-	add_timer(&timer);
-}
 //유저-> 커널
 static ssize_t gpio_write(struct file *fil,const char *buff, size_t len,loff_t *off){
     static int count;
+
+    char *cmd,*str; //LED 0 or 1 을 확인 ,pid 값을 받아옴
+    char *sep=":";
+    char *endptr,*pidstr;
     memset(msg,0,BLK_SIZE);
+    str=kstrdup(msg,GFP_KERNEL); //문자열을 복사
+    cmd=strsep(&str,sep);               //문자열을 분리=> LED 제어값 
+    pidstr=strsep(&str,sep);            //문자열을 분리 => PID 값 (str의 주소값이 한칸 앞으로 간다.)
     
-    count=copy_from_user(msg,buff,len); //유저로 부터 값을 받아옴
-	if (!strcmp(msg, "0"))
-	{
-		del_timer_sync(&timer); //timer fuc의 작업이 끝날때까지 대기후에 종료
-	}
-	else {
-		init_timer(&timer);
-		timer.function = timer_func;
-		timer.data = 1L; //timer_func으로 전달하는 인자값
-		timer.expires = jiffies + (1 * HZ); //현재 시간 + ((1*Hz)=1초) => 1초후에 타이머 만료
-		add_timer(&timer); //timer 추가
-	}
+    cmd[1]='\0';
+    
+#ifdef DEBUG
+    printk(KERN_INFO "cmd:%s, pid:%s\n",cmd,pidstr);    
+#endif
+    count=copy_from_user(msg,buff,len); //유저로 부터 값을 받아옴 -=> msg로
+    if(!strcmp(cmd,"end")) //시그널 전송 제어
+        pid_vaild=0;
+    else
+        pid_vaild=1;
+//  커널에서의 문자열을 숫자로 변환
+    pid=simple_strtol(pidstr,&endptr,10);
+
+#ifdef DEBUG
+    printk(KERN_INFO "pid:%d\n",pid);    
+#endif
+
+    if(endptr!=NULL)
+    {
+        //pid값을 통해 task_struct구조체의 주소값을 확인
+        task=pid_task(find_vpid(pid),PIDTYPE_PID);
+        if(task==NULL)
+        {
+            printk(KERN_INFO "ERROR not found PID from user\n");
+            return -1;
+        }
+    }    
     gpio_set_value(GPIO_LED, (strcmp(msg,"0")));
     printk(KERN_INFO "GPIO write:%s\n",msg);
     return count;
@@ -114,17 +143,43 @@ static ssize_t gpio_write(struct file *fil,const char *buff, size_t len,loff_t *
 
 static irqreturn_t irq_func(int irq,void *data){
     //IRQ 발생 & LED가 OFF 일때
-	static int flag = 0;
+	
     static int count;
-
+    
+    static struct siginfo sinfo;
+    unsigned long expireTime=20000000L //일정 대가시간 동안은 기다리도록함
+    
 	if (!flag)
-	{
+        //ktme_set(설정초,설정나노초)
+	{   ktime=ktime_set(0,expireTime);
+        //hrtimer_init(타이머 구조체 주소값, 등록할 타이머값, 상대시간으로 설정)
+        hrtimer_init(&hr_timer,ktime,HRTIMER_MODEL_REL);
+        hrtimer.function=&myTimer_callback;
+        printk(KERN_INFO "starttime"\n);
+        hrtimer_start(&hr_timer,ktime,HRTIMER_MODEL_REL);
+
 		flag = 1;
 		if ((irq == switch_irq) && !gpio_get_value(GPIO_LED))
-			gpio_set_value(GPIO_LED, 1);
-		else //IRQ발생 & LED ON일때
-			gpio_set_value(GPIO_LED, 0);
+		{
+        	gpio_set_value(GPIO_LED, 1);
+            //스위치가 눌렸을때 응용프로그램에게 SIGIO를 전달
+            memset(&sinfo,0,sizeof(struct siginfo)); //초기화
+            sinfo.si_signo=SIGIO;
+            sinfo.si_code =SI_USER;
+            if(task!=NULL)
+            {
+                send_sig_info(SIGIO,&sinfo,task);//커널측 시그널 전송 함수 =유저측 kill() 과 동일
+            }
+            else
+            {
+               printk(KERN_INFO "ERROR USERPID");
+            }
 
+        }
+        else //IRQ발생 & LED ON일때
+		{	
+            gpio_set_value(GPIO_LED, 0);
+        }
 		printk(KERN_INFO " Called isr_func():%d\n", count);
 		count++;
 	}
@@ -210,9 +265,16 @@ static int __init Module_init(void){//insmod로 적재 될때 실행되는 함�
 	}
 
 static void __exit Module_exit(void){//rmmod로 제거 될때 실행 되는 함수
-	dev_t devno=MKDEV(GPIO_MAJOR,GPIO_MINOR);
-	del_timer_sync(&timer);
-    gpio_direction_output(GPIO_LED,0);
+	int ret;
+    
+    dev_t devno=MKDEV(GPIO_MAJOR,GPIO_MINOR);
+    
+    ret=hr_timer_cancel(&hr_timer);
+    if(ret)
+    printk(KERN_INFO ""myTIMER was stlll in use\n);
+
+ printk(KERN_INFO ""myTIMER was stlll in use\n);
+ gpio_direction_output(GPIO_LED,0);
 	
 	//request irp 에서 받아온 권한을 반납한다.
 	free_irq(switch_irq, NULL);
