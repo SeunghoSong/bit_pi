@@ -401,7 +401,7 @@ static void __exit cleanupModule(void)
 	int i;
      for(i=0;i<8;i++)
      {
-        gpio_direction_output(segs[i],SEG_LOW);    
+        gpio_direction_output(segs[i],LOW);    
         gpio_free(segs[i]);
      }
 	//hr-Timer 취소
