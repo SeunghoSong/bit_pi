@@ -12,8 +12,8 @@
     
 	
 
+struct timeval UTCtime_r[2];
 
-struct timeval UTCtime_r;
 
 void disp_runtime(struct timeval UTCtime_s, struct timeval UTCtime_e)
 {
@@ -66,6 +66,7 @@ void* sonic (void* data)
 
 int main(int argc, char *argv[])
 {
+	
 	int flag = 0;
 	int count=0;
 	struct timeval UTCtime_t1, UTCtime_t2;
